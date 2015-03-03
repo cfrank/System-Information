@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+
+#
+# A very simple and crudely built
+# system information program to
+# show the elements of my system
+# as well as take a screenshot
+# if provided the "-s" argument
+#
+
+# First we will specify a bunch of variables
+
+# The username
+USER_NAME=$(id -un)
+
+# The kernel version
+KERNEL_VER=$(uname -r)
+
+
+# Get the OS name
+
+# Use the os-release file
+OS_RELEASE=/etc/os-release
+# Read in the file line by line
+while read CMD; do
+    prefix="NAME="
+    if [[ $CMD == *"$prefix"* ]]
+    then
+        # Remove the prefix from the string
+        # resulting in the operating system
+        OP_SYSTEM=${CMD#${prefix}}
+        break 1
+    fi
+done < "$OS_RELEASE"
+
+# Get the current uptime
+if [[ -f /proc/uptime ]]; then
+    uptime=$(</proc/uptime)
+    uptime=${uptime//.*}
+fi
+
+if [[ -n ${uptime} ]]; then
+    seconds=$((${uptime}%60))
+    minutes=$((${uptime}/60%60))
+    hours=$((${uptime}/3600%24))
+    days=$((${uptime}/86400))
+    uptime="${minutes}m"
+    if [ "${hours}" -ne "0" ]; then
+        uptime="${hours}h ${uptime}"
+    fi
+    if [ "${days}" -ne "0" ]; then
+        uptime="${days}d ${uptime}"
+    fi
+    CUR_UPTIME="${uptime}"
+fi
+
+# Find the number of packages
+NUM_PACKAGES=$(pacman -Qq | wc -l)
+
+# Find the disk usage
+if type -p df >/dev/null 2>&1; then
+    diskinfo=$(df -h --total 2>/dev/null | tail -1)
+    totaldisksize=$(awk '{print $2}' <<< "${diskinfo}")
+    totaluseddisk=$(awk '{print $3}' <<< "${diskinfo}")
+    totalpercentused=$(awk '{print $5}' <<< "${diskinfo}")
+    SYS_DISK="${totaluseddisk}B / ${totaldisksize}B (${totalpercentused})"
+fi
+
+# Find the memory usage
+hw_mem=0
+free_mem=0
+human=1024
+mem_info=$(</proc/meminfo)
+mem_info=$(echo $(echo $(mem_info=${mem_info// /}; echo ${mem_info//kB/})))
+for m in $mem_info; do
+    if [[ ${m//:*} = MemTotal ]]; then
+        memtotal=${m//*:}
+    fi
+    if [[ ${m//:*} = MemFree ]]; then
+        memfree=${m//*:}
+    fi
+    if [[ ${m//:*} = Buffers ]]; then
+        membuffer=${m//*:}
+    fi
+    if [[ ${m//:*} = Cached ]]; then
+        memcached=${m//*:}
+    fi
+done
+totalusedmemory="$(((($memtotal - $memfree) - $membuffer - $memcached) / $human))"
+totalmemory="$(($memtotal / $human))"
+SYS_MEM="${totalusedmemory}MB / ${totalmemory}MB"
+
+# Find display resolution
+if [[ -n ${DISPLAY} ]]; then
+    DISPLAY_RES=$(xdpyinfo | sed -n 's/.*dim.* \([0-9]*x[0-9]*\) .*/\1/pg' | tr '\n' ' ')
+fi
+#
+# Echo all the variables
+# I am going to try and make
+# this small and efficient
+# so that it uses a small
+# amount of screen space
+#
+
+# Define Colors
+T=$(tput setaf 6)
+I=$(tput setaf 15)
+NORMAL=$(tput sgr0)
+# First line - [Username - Kernel]
+printf "${T}%10s ${I}%-20s ${T}%15s ${I}%-20s\n" "Username: " "$USER_NAME" "Kernel: " "$KERNEL_VER"
+# Second line - [Packages - Resolution]
+printf "${T}%10s ${I}%-20s ${T}%15s ${I}%-20s\n" "Packages: " "$NUM_PACKAGES" "Resolution: " "$DISPLAY_RES"
+# Third line - [OS - Uptime]
+printf "${T}%10s ${I}%-20s ${T}%15s ${I}%-20s\n" "OS: " "$OP_SYSTEM" "Uptime: " "$CUR_UPTIME"
+# Fourth line - [Disk - RAM]
+printf "${T}%10s ${I}%-20s ${T}%15s ${I}%-20s ${NORMAL}\n" "Disk: " "$SYS_DISK" "Memory: " "$SYS_MEM"
